@@ -6,10 +6,9 @@ on:
     - cron: '0 4 * * 1'
   workflow_dispatch:   # Manual trigger via GitHub UI
 
+# gh-pages branch approach — more reliable than native Pages artifact
 permissions:
-  contents: write      # Push data.json
-  pages: write         # Deploy to GitHub Pages
-  id-token: write
+  contents: write
 
 jobs:
   sync-and-deploy:
@@ -20,7 +19,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      # ── 1. Sync data from BigQuery + Google Sheets ──────────────
+      # ── 1. Sync data from BigQuery + Google Sheets ──────────────────
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -31,21 +30,21 @@ jobs:
 
       - name: Run data sync script
         env:
-          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}          # GCP Service Account JSON
-          SHEETS_CSV_URL: ${{ secrets.SHEETS_CSV_URL }}  # FC & Actual cost sheet CSV URL
-          MTM_CSV_URL: ${{ secrets.MTM_CSV_URL }}        # MTM metric sheet CSV URL
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          SHEETS_CSV_URL: ${{ secrets.SHEETS_CSV_URL }}
+          MTM_CSV_URL: ${{ secrets.MTM_CSV_URL }}
         run: python scripts/sync_data.py
 
-      # ── 2. Commit updated data.json ─────────────────────────────
+      # ── 2. Commit updated data.json to main branch ───────────────────
       - name: Commit data.json
         run: |
           git config --global user.name  'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           git add public/data.json
-          git diff --staged --quiet && echo "No changes to data.json" || \
+          git diff --staged --quiet && echo "No data changes" || \
             git commit -m "data: sync $(date -u +'%Y-%m-%d %H:%M UTC') [auto]"
 
-      # ── 3. Build React dashboard ────────────────────────────────
+      # ── 3. Build React dashboard ─────────────────────────────────────
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -54,21 +53,22 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install npm deps
-        run: npm ci --cache /tmp/npm-cache
+        run: npm ci
 
       - name: Build
         run: npm run build
+        env:
+          NODE_ENV: production
 
-      # ── 4. Push commit (data.json) ───────────────────────────────
-      - name: Push to GitHub
-        run: git push
-
-      # ── 5. Deploy to GitHub Pages ────────────────────────────────
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+      # ── 4. Push dist → gh-pages branch (GitHub Pages serves this) ───
+      - name: Deploy to gh-pages branch
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          path: dist
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          force_orphan: true        # clean gh-pages branch every deploy
+          commit_message: "deploy: ${{ github.sha }}"
 
-      - name: Deploy to GitHub Pages
-        id: deploy
-        uses: actions/deploy-pages@v4
+      # ── 5. Push main branch (with updated data.json) ─────────────────
+      - name: Push main
+        run: git push origin main

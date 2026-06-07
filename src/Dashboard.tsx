@@ -848,25 +848,26 @@ const TAB_BUDGET=()=>{
 const TAB_UE=()=>{
   const [selV,setSelV]=useState("ALL");
   const [cohortPlatform,setCohortPlatform]=useState("App");
-  // Dynamic Lifespan from actual cohort data — sum of retention rates M0→M5
-  // Formula: LS = sum(M0..M_last) = 1 + M1% + M2% + ... (each as decimal)
-  // Uses "All (Web+App blended)" as default since we track total Chợ Tốt
-  // App cohort Jan PTY: 1 + 0.682 + 0.485 + 0.381 + 0.298 + 0.246 = 3.09M
-  // Blended (70% App + 30% Web): slightly lower, ~2.9M
-  // Per vertical (from actual Jan cohort data):
+  // ── Lifespan from ACTUAL cohort data (Jan 2026 cohort, M0→M5) ──────
+  // Formula: LS = 1 + M1 + M2 + M3 + M4 + M5  (each as decimal fraction)
+  // Source: BQ user_retention table, Jan cohort only (oldest, most complete)
+  // NOTE: These are App-channel cohort numbers from BQ.
+  // Web/App platform split is NOT applied because we don't have the actual
+  // platform distribution from BQ yet. Until BQ provides it, Lifespan = App cohort.
+  // TODO: Pull platform_split (app_pct, web_pct) from BQ and adjust accordingly.
   const COHORT_LS: Record<string,number> = {
-    PTY: +(1+0.682+0.485+0.381+0.298+0.246).toFixed(2),      // 3.09M  App
-    JOB: +(1+0.712+0.521+0.430+0.352+0.294).toFixed(2),      // 3.31M  App
-    VEH: +(1+0.558+0.362+0.264+0.201+0.162).toFixed(2),      // 2.55M  App
-    GDS: +(1+0.624+0.418+0.312+0.241+0.198).toFixed(2),      // 2.79M  App
-    ALL: +(1+0.650+0.447+0.347+0.273+0.224).toFixed(2),      // 2.94M  avg
+    PTY: +(1+0.682+0.485+0.381+0.298+0.246).toFixed(2),  // = 3.09M  (Jan cohort, actual BQ)
+    JOB: +(1+0.712+0.521+0.430+0.352+0.294).toFixed(2),  // = 3.31M  (Jan cohort, actual BQ)
+    VEH: +(1+0.558+0.362+0.264+0.201+0.162).toFixed(2),  // = 2.55M  (Jan cohort, actual BQ)
+    GDS: +(1+0.624+0.418+0.312+0.241+0.198).toFixed(2),  // = 2.79M  (Jan cohort, actual BQ)
+    ALL: +(1+(0.682+0.712+0.558+0.624)/4
+           +(0.485+0.521+0.362+0.418)/4
+           +(0.381+0.430+0.264+0.312)/4
+           +(0.298+0.352+0.201+0.241)/4
+           +(0.246+0.294+0.162+0.198)/4).toFixed(2), // = avg 4 verticals
   };
-  // Blended (Web+App): App × 0.70 + Web (App×0.72avg) × 0.30 → multiply by 0.916
-  const LS_BLENDED: Record<string,number> = Object.fromEntries(
-    Object.entries(COHORT_LS).map(([k,v])=>[k, +(v*0.916).toFixed(2)])
-  );
-  const LS = LS_BLENDED[selV==="ALL"?"ALL":selV] || LS_BLENDED["ALL"];
-  const LS_LABEL = `${LS.toFixed(1)}M (from ${selV==="ALL"?"all verticals avg":selV} cohort)`;
+  const LS = COHORT_LS[selV==="ALL"?"ALL":selV] || COHORT_LS["ALL"];
+  const LS_LABEL = `${LS.toFixed(2)}M (Jan cohort, BQ actuals — web/app split pending)`;
 
   // For metrics: ALL = aggregate of 4 verticals; specific = that vertical only
   const getUELeads=(vv:string)=>vv==="ALL"?MONTHS.slice(0,ACT).map((_,i)=>VC.reduce((s,v2)=>s+(LEADS[v2]?.[i]||0),0)):([...(LEADS[vv as V]||[])] as number[]);
@@ -943,28 +944,12 @@ const TAB_UE=()=>{
   };
 
   // Cohort platform handling
+  // "All" = same as App data from BQ (platform split NOT estimated — needs actual BQ query)
+  // "App" = BQ app cohort (current data source)
+  // "Web" = NOT available from BQ yet; showing App data with disclaimer
   const cohortVert = selV==="ALL"?"PTY":selV;
   const baseRows=COHORT[cohortVert]||COHORT.PTY;
-  // All = blended (70% App + 30% Web retention, approximate platform mix)
-  // App = App-only (base data from BQ App cohort)
-  // Web = Web-only (lower retention, ~28-35% lower than App)
-  const cohortRows = cohortPlatform==="Web"
-    ? baseRows.map((r:any)=>({...r,
-        M1:r.M1!=null?+(r.M1*0.72).toFixed(1):null, M1a:r.M1a!=null?Math.round(r.M1a*0.72):null,
-        M2:r.M2!=null?+(r.M2*0.68).toFixed(1):null, M2a:r.M2a!=null?Math.round(r.M2a*0.68):null,
-        M3:r.M3!=null?+(r.M3*0.65).toFixed(1):null, M3a:r.M3a!=null?Math.round(r.M3a*0.65):null,
-        M4:r.M4!=null?+(r.M4*0.62).toFixed(1):null, M4a:r.M4a!=null?Math.round(r.M4a*0.62):null,
-        M5:r.M5!=null?+(r.M5*0.60).toFixed(1):null, M5a:r.M5a!=null?Math.round(r.M5a*0.60):null,
-      }))
-    : cohortPlatform==="All"
-    ? baseRows.map((r:any)=>({...r,  // blended: 70% App + 30% Web
-        M1:r.M1!=null?+(r.M1*0.70+r.M1*0.72*0.30).toFixed(1):null, M1a:r.M1a!=null?Math.round(r.M1a*0.916):null,
-        M2:r.M2!=null?+(r.M2*0.70+r.M2*0.68*0.30).toFixed(1):null, M2a:r.M2a!=null?Math.round(r.M2a*0.904):null,
-        M3:r.M3!=null?+(r.M3*0.70+r.M3*0.65*0.30).toFixed(1):null, M3a:r.M3a!=null?Math.round(r.M3a*0.895):null,
-        M4:r.M4!=null?+(r.M4*0.70+r.M4*0.62*0.30).toFixed(1):null, M4a:r.M4a!=null?Math.round(r.M4a*0.886):null,
-        M5:r.M5!=null?+(r.M5*0.70+r.M5*0.60*0.30).toFixed(1):null, M5a:r.M5a!=null?Math.round(r.M5a*0.880):null,
-      }))
-    : baseRows; // App-only
+  const cohortRows = baseRows; // All platforms: use BQ data as-is until platform split is available
   // K ₫ format — round to whole number for readability
   const KFmt=(n:number|null)=>n==null?"—":`${Math.round(n||0).toLocaleString("vi-VN")} K ₫`;
   const XFmt=(n:number)=>`${n?.toFixed(2)}×`;
@@ -1069,16 +1054,19 @@ const TAB_UE=()=>{
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             <Activity size={13} color="#94a3b8"/>
             <span style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em",color:"#64748b"}}>
-              Cohort Retention — {cohortVert} {cohortPlatform==="All"?"(All platforms)":cohortPlatform==="App"?"(App)":"(Web)"}
+              Cohort Retention — {cohortVert} {cohortPlatform==="Web"?"(Web — BQ data pending)":"(BQ actual, Jan–May 2026)"}
             </span>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <div style={{display:"flex",gap:6}}>
-              {["All","App","Web"].map(p=>(
-                <button key={p} onClick={()=>setCohortPlatform(p)}
-                  style={{padding:"3px 12px",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer",border:"1.5px solid #6366f1",
-                    background:cohortPlatform===p?"#6366f1":"transparent",color:cohortPlatform===p?"#fff":"#6366f1",transition:"all .15s"}}>
-                  {p==="All"?"All (Web+App)":p==="App"?"App (6M)":"Web (1.5M)"}
+              {[{k:"All",l:"All (BQ data)"},{k:"App",l:"App"},{k:"Web",l:"Web (BQ pending)"}].map(({k,l})=>(
+                <button key={k} onClick={()=>setCohortPlatform(k)}
+                  style={{padding:"3px 12px",borderRadius:20,fontSize:11,fontWeight:700,cursor:"pointer",
+                    border:`1.5px solid ${k==="Web"?"#94a3b8":"#6366f1"}`,
+                    background:cohortPlatform===k?(k==="Web"?"#94a3b8":"#6366f1"):"transparent",
+                    color:cohortPlatform===k?"#fff":(k==="Web"?"#94a3b8":"#6366f1"),
+                    transition:"all .15s"}}>
+                  {l}
                 </button>
               ))}
             </div>
