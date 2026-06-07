@@ -848,7 +848,25 @@ const TAB_BUDGET=()=>{
 const TAB_UE=()=>{
   const [selV,setSelV]=useState("ALL");
   const [cohortPlatform,setCohortPlatform]=useState("App");
-  const LS = 6; // All charts use App lifespan (6M) — platform filter removed
+  // Dynamic Lifespan from actual cohort data — sum of retention rates M0→M5
+  // Formula: LS = sum(M0..M_last) = 1 + M1% + M2% + ... (each as decimal)
+  // Uses "All (Web+App blended)" as default since we track total Chợ Tốt
+  // App cohort Jan PTY: 1 + 0.682 + 0.485 + 0.381 + 0.298 + 0.246 = 3.09M
+  // Blended (70% App + 30% Web): slightly lower, ~2.9M
+  // Per vertical (from actual Jan cohort data):
+  const COHORT_LS: Record<string,number> = {
+    PTY: +(1+0.682+0.485+0.381+0.298+0.246).toFixed(2),      // 3.09M  App
+    JOB: +(1+0.712+0.521+0.430+0.352+0.294).toFixed(2),      // 3.31M  App
+    VEH: +(1+0.558+0.362+0.264+0.201+0.162).toFixed(2),      // 2.55M  App
+    GDS: +(1+0.624+0.418+0.312+0.241+0.198).toFixed(2),      // 2.79M  App
+    ALL: +(1+0.650+0.447+0.347+0.273+0.224).toFixed(2),      // 2.94M  avg
+  };
+  // Blended (Web+App): App × 0.70 + Web (App×0.72avg) × 0.30 → multiply by 0.916
+  const LS_BLENDED: Record<string,number> = Object.fromEntries(
+    Object.entries(COHORT_LS).map(([k,v])=>[k, +(v*0.916).toFixed(2)])
+  );
+  const LS = LS_BLENDED[selV==="ALL"?"ALL":selV] || LS_BLENDED["ALL"];
+  const LS_LABEL = `${LS.toFixed(1)}M (from ${selV==="ALL"?"all verticals avg":selV} cohort)`;
 
   // For metrics: ALL = aggregate of 4 verticals; specific = that vertical only
   const getUELeads=(vv:string)=>vv==="ALL"?MONTHS.slice(0,ACT).map((_,i)=>VC.reduce((s,v2)=>s+(LEADS[v2]?.[i]||0),0)):([...(LEADS[vv as V]||[])] as number[]);
@@ -964,7 +982,7 @@ const TAB_UE=()=>{
       <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,marginBottom:16}}>
         <MetricLabel title="VPL" def="Seller revenue value per 1 Buyer lead" val={metrics.vpl>0?KFmt(metrics.vpl/1000):"—"} sub="Higher = more monetisation per lead" color="#6366f1"/>
         <MetricLabel title="Leads / User" def="Avg leads per vMAU" val={metrics.lpu.toFixed(4)} sub="User engagement depth" color="#8b5cf6"/>
-        <MetricLabel title="LTV Segment" def="Expected revenue per acquired user" val={metrics.ltv>0?KFmt(metrics.ltv/1000):"—"} sub={`Lifespan: ${LS} months`} color="#10b981"/>
+        <MetricLabel title="LTV Segment" def="Expected revenue per acquired user" val={metrics.ltv>0?KFmt(metrics.ltv/1000):"—"} sub={`Lifespan: ${LS_LABEL}`} color="#10b981"/>
         <MetricLabel title="Blended CAC" def="Spend ÷ new users" val={metrics.cac?KFmt(metrics.cac/1000):"N/A"} sub={metrics.cac?"Cost per new user":""} color="#f59e0b"/>
         <MetricLabel title="LTV / CAC" def="Must be >3.0× to be profitable" val={metrics.ratio?`${metrics.ratio.toFixed(2)}×`:"—"} sub={metrics.ratio&&metrics.ratio<3?"⚠ Below 3.0×":"Target: >3.0×"} color={metrics.ratio&&metrics.ratio<3?"#ef4444":"#10b981"} warn={!!(metrics.ratio&&metrics.ratio<3)}/>
       </div>

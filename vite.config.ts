@@ -4,7 +4,7 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  base: process.env.NODE_ENV === 'production' ? '/mkt-dashboard/' : '/',
+  base: process.env.NODE_ENV === 'production' ? '/chotot-mkt-dashboard/' : '/',
   server: {
     port: 5174,
     open: true,
