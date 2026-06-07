@@ -1,0 +1,74 @@
+name: Weekly Data Sync + Deploy
+
+on:
+  schedule:
+    # Every Monday 11:00 AM Vietnam time (UTC+7 = 04:00 UTC)
+    - cron: '0 4 * * 1'
+  workflow_dispatch:   # Manual trigger via GitHub UI
+
+permissions:
+  contents: write      # Push data.json
+  pages: write         # Deploy to GitHub Pages
+  id-token: write
+
+jobs:
+  sync-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ── 1. Sync data from BigQuery + Google Sheets ──────────────
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install google-cloud-bigquery google-auth requests pandas
+
+      - name: Run data sync script
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}          # GCP Service Account JSON
+          SHEETS_CSV_URL: ${{ secrets.SHEETS_CSV_URL }}  # FC & Actual cost sheet CSV URL
+          MTM_CSV_URL: ${{ secrets.MTM_CSV_URL }}        # MTM metric sheet CSV URL
+        run: python scripts/sync_data.py
+
+      # ── 2. Commit updated data.json ─────────────────────────────
+      - name: Commit data.json
+        run: |
+          git config --global user.name  'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add public/data.json
+          git diff --staged --quiet && echo "No changes to data.json" || \
+            git commit -m "data: sync $(date -u +'%Y-%m-%d %H:%M UTC') [auto]"
+
+      # ── 3. Build React dashboard ────────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install npm deps
+        run: npm ci --cache /tmp/npm-cache
+
+      - name: Build
+        run: npm run build
+
+      # ── 4. Push commit (data.json) ───────────────────────────────
+      - name: Push to GitHub
+        run: git push
+
+      # ── 5. Deploy to GitHub Pages ────────────────────────────────
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
